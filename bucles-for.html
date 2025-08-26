@@ -9,6 +9,81 @@
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/animations.css">
     <link rel="stylesheet" href="css/responsive.css">
+    
+    <!-- Estilos adicionales para el verificador -->
+    <style>
+        .execution-status {
+            background: #f8f9fa;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 15px 0;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .execution-status.waiting {
+            border-color: #ffc107;
+            background: #fff3cd;
+        }
+
+        .execution-status.executed {
+            border-color: #28a745;
+            background: #d4edda;
+            animation: pulse-success 1s ease-in-out;
+        }
+
+        .execution-status.error {
+            border-color: #dc3545;
+            background: #f8d7da;
+        }
+
+        @keyframes pulse-success {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+
+        .status-icon {
+            font-size: 1.5rem;
+            margin-right: 8px;
+        }
+
+        .verify-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            margin: 10px 5px;
+            transition: all 0.3s ease;
+        }
+
+        .verify-button:hover {
+            background: #0056b3;
+            transform: translateY(-2px);
+        }
+
+        .verify-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .mini-log {
+            background: #1e1e1e;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 0.8rem;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -68,6 +143,13 @@
                 <!-- Primer Ejercicio: Islas -->
                 <div class="interactive-section">
                     <h3>🎮 ¡Prueba el código!</h3>
+                    
+                    <!-- Estado de ejecución -->
+                    <div class="execution-status waiting" id="execution-status-1">
+                        <span class="status-icon">⏳</span>
+                        <strong>Estado:</strong> <span id="status-text-1">Presiona ▶️ Ejecutar en el IDE para comenzar</span>
+                    </div>
+
                     <div class="output" id="for-output">
                         <p>Presiona el botón Run para comenzar la aventura...</p>
                     </div>
@@ -76,11 +158,21 @@
                         <iframe
                             src="https://disenioweb2025.github.io/ide_basico_python/?codigo=JTIzTGlzdGElMjBkZSUyMGlzbGFzJTIwZW4lMjBudWVzdHJvJTIwbWFwYSUwQWlzbGFzJTIwJTNEJTIwJTVCJTIySXNsYSUyMENhbGF2ZXJhJTIyJTJDJTIySXNsYSUyMExvcm8lMjIlMkMlMjJJc2xhJTIwQ2ElQzMlQjElQzMlQjNuJTIyJTJDJTIySXNsYSUyMFNpcmVuYSUyMiUyQyUyMklzbGElMjBEb3JhZGElMjIlNUQlMEElMEElMjMlMjBFbCUyMGJ1Y2xlJTIwRk9SJTIwdmlzaXRhJTIwY2FkYSUyMGlzbGElMjBhdXRvbSVDMyVBMXRpY2FtZW50ZSUwQWZvciUyMGlzbGElMjBpbiUyMGlzbGFzJTNBJTBBJTIwJTIwcHJpbnQoZiUyMiVGMCU5RiU4RiVCNCVFMiU4MCU4RCVFMiU5OCVBMCVFRiVCOCU4RiUyMExsZWdhbW9zJTIwYSUyMCU3QmlzbGElN0QhJTIyKSUyMCUwQSUyMCUyMHByaW50KCUyMiVGMCU5RiU5NCU4RCUyMEJ1c2NhbmRvJTIwdGVzb3Jvcy4uLiUyMCElMjIpJTBBJTIwJTIwcHJpbnQoJTIyJUYwJTlGJTkyJUIwJTIwJUMyJUExVGVzb3JvJTIwZW5jb250cmFkbyElMjIpJTBBJTIwJTIwcHJpbnQoJTIyLS0tJTIyKSUwQSUwQSUyMyUyMCVGMCU5RiU4RiVCNCVFMiU4MCU4RCVFMiU5OCVBMCVFRiVCOCU4RiUyMCVDMiVBMUVzY3JpYmUlMjB0dSUyMGMlQzMlQjNkaWdvJTIwYXF1JUMzJUFEISUwQSUyMyUyMEVqZW1wbG8lM0ElMjBjcmVhciUyMHVuYSUyMGxpc3RhJTIwZGUlMjB0ZXNvcm9z"
                             width="100%"
-                            height="450"
+                            height="650"
                             frameborder="0"
                             data-exercise="for-islas"
+                            id="iframe-1"
                         ></iframe>
 
+                        <!-- Controles de verificación -->
+                        <div class="verify-controls">
+                            <button class="verify-button" onclick="verificarEjecucion(1)" id="verify-btn-1">
+                                🔍 Verificar Ejecución
+                            </button>
+                            <div class="mini-log" id="log-1" style="display: none;">
+                                [Sistema] Listo para verificar...
+                            </div>
+                        </div>
                         
                         <div class="quiz">
                             <p>
@@ -277,6 +369,121 @@
     </footer>
 
     <script src="script.js"></script>
+    
+    <!-- Script adicional para verificación simple -->
+    <script>
+        // Función simplificada para verificar solo ejecución
+        async function verificarEjecucion(ejercicioNum) {
+            const iframe = document.getElementById(`iframe-${ejercicioNum}`);
+            const statusElement = document.getElementById(`execution-status-${ejercicioNum}`);
+            const statusText = document.getElementById(`status-text-${ejercicioNum}`);
+            const verifyBtn = document.getElementById(`verify-btn-${ejercicioNum}`);
+            const logElement = document.getElementById(`log-${ejercicioNum}`);
+
+            // Mostrar estado de verificación
+            verifyBtn.disabled = true;
+            verifyBtn.textContent = "🔍 Verificando...";
+            logElement.style.display = "block";
+            
+            log(ejercicioNum, "Iniciando verificación...");
+
+            try {
+                // Acceder al contenido del iframe
+                const iframeWindow = iframe.contentWindow;
+                
+                if (!iframeWindow) {
+                    throw new Error("No se puede acceder al IDE");
+                }
+
+                log(ejercicioNum, "Accediendo al estado del IDE...");
+
+                // Verificar si Python está cargado
+                const estado = iframeWindow.getPythonExecutionStatus();
+                
+                if (estado.isLoading) {
+                    log(ejercicioNum, "⏳ Python aún se está cargando");
+                    alert("Python aún se está cargando. Por favor espera e intenta nuevamente.");
+                    return;
+                }
+
+                log(ejercicioNum, `Estado obtenido: ${JSON.stringify(estado)}`);
+
+                // Verificar si se ejecutó el código (con éxito o error)
+                if (estado.success || estado.error) {
+                    // El código fue ejecutado
+                    statusElement.className = "execution-status executed";
+                    statusText.textContent = "¡Código ejecutado exitosamente! 🎉";
+                    
+                    log(ejercicioNum, "✅ ¡Código ejecutado correctamente!");
+                    
+                    if (estado.success) {
+                        log(ejercicioNum, "Sin errores de ejecución");
+                    } else {
+                        log(ejercicioNum, `Ejecutado con errores: ${estado.error}`);
+                    }
+
+                    // Agregar moneda de oro
+                    agregarMoneda();
+                    
+                } else {
+                    // El código no ha sido ejecutado
+                    statusElement.className = "execution-status waiting";
+                    statusText.textContent = "Aún no has ejecutado el código. Presiona ▶️ en el IDE";
+                    
+                    log(ejercicioNum, "⚠️ Código no ejecutado");
+                    alert("No se detectó ejecución del código. Asegúrate de presionar el botón ▶️ Ejecutar en el IDE.");
+                }
+
+            } catch (error) {
+                console.error("Error al verificar:", error);
+                
+                statusElement.className = "execution-status error";
+                statusText.textContent = "Error al verificar. Intenta recargar la página.";
+                
+                log(ejercicioNum, `❌ Error: ${error.message}`);
+                alert(`Error al verificar: ${error.message}`);
+            } finally {
+                verifyBtn.disabled = false;
+                verifyBtn.textContent = "🔍 Verificar Ejecución";
+            }
+        }
+
+        // Función para agregar monedas (compatible con tu sistema existente)
+        function agregarMoneda() {
+            const contador = document.getElementById('contador-monedas');
+            let monedas = parseInt(contador.textContent) || 0;
+            monedas++;
+            contador.textContent = monedas;
+            
+            // Guardar en localStorage si existe esa funcionalidad
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('monedas-piratas', monedas.toString());
+            }
+            
+            console.log(`🪙 Moneda añadida! Total: ${monedas}`);
+        }
+
+        // Función de logging simple
+        function log(ejercicioNum, mensaje) {
+            const logElement = document.getElementById(`log-${ejercicioNum}`);
+            if (logElement) {
+                const timestamp = new Date().toLocaleTimeString();
+                logElement.innerHTML += `<br>[${timestamp}] ${mensaje}`;
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+            console.log(`[Ejercicio ${ejercicioNum}] ${mensaje}`);
+        }
+
+        // Cargar monedas guardadas al iniciar la página
+        window.addEventListener('load', () => {
+            if (typeof localStorage !== 'undefined') {
+                const monedasGuardadas = localStorage.getItem('monedas-piratas');
+                if (monedasGuardadas) {
+                    document.getElementById('contador-monedas').textContent = monedasGuardadas;
+                }
+            }
+        });
+    </script>
 </body>
 </html>
                             
