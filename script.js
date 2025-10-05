@@ -132,7 +132,10 @@ function cargarProgreso() {
 
   // Mostrar/ocultar el HUD de monedas según el valor actual
   const contenedor = document.querySelector(".contador-monedas-container");
-  if (contenedor) contenedor.style.display = monedasOro > 0 ? "block" : "none";
+  if (contenedor) {
+    if (monedasOro > 0) contenedor.classList.add("is-visible");
+    else contenedor.classList.remove("is-visible");
+  }
 
   ensureReiniciarLink();
   verificarVictoria();
@@ -172,7 +175,10 @@ function actualizarMonedas() {
     setTimeout(() => contador.classList.remove("coin-bounce"), 600);
   }
 
-  if (contenedor) contenedor.style.display = monedasOro > 0 ? "block" : "none";
+  if (contenedor) {
+    if (monedasOro > 0) contenedor.classList.add("is-visible");
+    else contenedor.classList.remove("is-visible");
+  }
 
   ensureReiniciarLink();
   guardarProgreso();
@@ -314,7 +320,7 @@ function reiniciarProgreso() {
 
   actualizarMonedas();
   cerrarVictoria?.();
-  window.scrollTo(0, 0);
+  window.scrollTo(0, 0); // Solo aquí mantenemos el scrollTo
 
   // Redirigir siempre al inicio
   window.location.href = "index.html";
@@ -404,8 +410,7 @@ function ensureReiniciarLink() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Siempre arrancar arriba
- // window.scrollTo(0, 0);
+  // ❌ ELIMINADO: window.scrollTo(0, 0);
 
   // 1) Cargar progreso (sessionStorage o handoff)
   cargarProgreso();
@@ -442,8 +447,7 @@ document.addEventListener("DOMContentLoaded", () => {
 window.addEventListener("pagehide", escribirHandoffAntesDeSalir); // más fiable en móvil
 window.addEventListener("beforeunload", escribirHandoffAntesDeSalir); // respaldo en desktop
 
-// Refuerzo de scroll al terminar de cargar todo
-window.addEventListener("load", () => {
-  //window.scrollTo(0, 0);
-});
-
+// ❌ ELIMINADO: Refuerzo de scroll al terminar de cargar todo
+// window.addEventListener("load", () => {
+//   window.scrollTo(0, 0);
+// });
