@@ -405,7 +405,7 @@ function ensureReiniciarLink() {
 
 document.addEventListener("DOMContentLoaded", () => {
   // Siempre arrancar arriba
-  window.scrollTo(0, 0);
+ // window.scrollTo(0, 0);
 
   // 1) Cargar progreso (sessionStorage o handoff)
   cargarProgreso();
@@ -444,6 +444,6 @@ window.addEventListener("beforeunload", escribirHandoffAntesDeSalir); // respald
 
 // Refuerzo de scroll al terminar de cargar todo
 window.addEventListener("load", () => {
-  window.scrollTo(0, 0);
+  //window.scrollTo(0, 0);
 });
 
