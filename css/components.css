@@ -38,7 +38,8 @@
 
 /* Contenedor principal del contador (oculto por defecto) */
 .contador-monedas-container {
-    display: none;
+    /*display: none;*/
+    visibility: hidden;
     position: fixed;
     top: 20px;
     right: 20px;
