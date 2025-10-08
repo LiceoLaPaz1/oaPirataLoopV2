@@ -446,3 +446,91 @@ document.addEventListener("DOMContentLoaded", () => {
 // Guardar handoff justo antes de abandonar la página (cambio de sección, navegación, etc.)
 window.addEventListener("pagehide", escribirHandoffAntesDeSalir); // más fiable en móvil
 window.addEventListener("beforeunload", escribirHandoffAntesDeSalir); // respaldo en desktop
+
+// =======================
+//  INTEGRACIÓN CON IDE EMBEBIDO (postMessage)
+// =======================
+
+// 1) Registrar automáticamente iframes con data-exercise
+const IFRAME_EXERCISES = new Map();
+document.querySelectorAll('iframe[data-exercise]').forEach((ifr) => {
+  const id = ifr.getAttribute('data-exercise');
+  if (id) IFRAME_EXERCISES.set(ifr, id);
+});
+
+// 2) Si algún iframe aún no tiene data-exercise, podemos asignarlo por orden (opcional)
+(function registrarPorOrdenSiFalta() {
+  if (IFRAME_EXERCISES.size > 0) return;
+  const iframes = document.querySelectorAll('iframe');
+  // Ajustá el orden a tu página actual
+  const ids = ['for-islas', 'for-monedas', 'for-numeros'];
+  iframes.forEach((ifr, idx) => {
+    if (!IFRAME_EXERCISES.has(ifr) && ids[idx]) {
+      IFRAME_EXERCISES.set(ifr, ids[idx]);
+      ifr.setAttribute('data-exercise', ids[idx]);
+    }
+  });
+})();
+
+// 3) Evitar “farmear”: solo premiar la primera ejecución correcta por ejercicio embebido
+const primerosExitos = new Set();
+
+// 4) Escuchar mensajes desde el iframe del IDE
+window.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (!data || data.source !== 'py-ide') return;
+
+  // Deducir el ejercicio. Preferimos el que viene en el payload del IDE (?exerciseId=...)
+  let ejercicioId = data.exerciseId || null;
+
+  // Si no vino en el payload, intentar mapear por el contentWindow del iframe
+  if (!ejercicioId) {
+    try {
+      for (const [ifr, id] of IFRAME_EXERCISES.entries()) {
+        if (ifr.contentWindow === event.source) {
+          ejercicioId = id;
+          break;
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (!ejercicioId) {
+    // Si no logramos deducir el ejercicio, no hacemos nada.
+    return;
+  }
+
+  switch (data.type) {
+    case 'ide_ready': {
+      // Opcional: podés avisar que el IDE está listo
+      // crearToast('success', `🧠 IDE listo para ${ejercicioId}`);
+      break;
+    }
+
+    case 'run_started': {
+      // Opcional: mostrar feedback de ejecución
+      // crearToast('success', `🚀 Ejecutando ${ejercicioId}...`);
+      break;
+    }
+
+    case 'run_success': {
+      // Otorgar monedas solo la primera vez que se ejecute con éxito este ejercicio
+      if (!primerosExitos.has(ejercicioId) && !ejerciciosCompletados.has(ejercicioId)) {
+        primerosExitos.add(ejercicioId);
+        // Recompensa: 1 moneda (ajustá a tu gusto)
+        ganarMonedas(ejercicioId, 1, false);
+      } else {
+        // Ya premiado previamente; solo marcamos visualmente si hace falta
+        marcarEjercicioCompletado(ejercicioId);
+      }
+      break;
+    }
+
+    case 'run_error': {
+      // Opcional: feedback de error
+      // crearToast('error', `❌ Error al ejecutar ${ejercicioId}`);
+      console.warn('Error en IDE embebido', ejercicioId, data.message);
+      break;
+    }
+  }
+});
