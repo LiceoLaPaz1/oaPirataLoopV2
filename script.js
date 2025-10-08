@@ -1,453 +1,285 @@
-// =======================
-//  CONFIGURACIÓN GENERAL
-// =======================
+/* ide_core.js - IDE Pyodide básico con CodeMirror, soporte input y eventos postMessage */
 
-const STORAGE_KEY = "progresoPirata_v1";
-// Usamos sessionStorage para que el progreso dure solo mientras la pestaña esté abierta
-const STORAGE = window.sessionStorage;
-// Clave de "handoff" temporal (para traspaso entre páginas en la MISMA pestaña)
-const HANDOFF_KEY = STORAGE_KEY + "__handoff";
-// Ventana de tiempo (ms) para considerar válido el handoff entre páginas
-const HANDOFF_TTL_MS = 5000;
-
-const EJERCICIOS_REQUERIDOS = [
-  "for-islas",
-  "for-monedas",
-  "for-numeros",
-  "while-kraken",
-  "while-tesoro",
-  "while-practica",
-  "desafio-tripulacion",
-  "desafio-loro",
-  "desafio-dados",
-];
-
-const TABS_REQUERIDOS = [
-  "for-tab",
-  "while-tab",
-  "comparison-tab",
-  "challenges-tab",
-];
-const MONEDAS_PARA_GANAR = 12;
-
-// =======================
-//  ESTADO EN MEMORIA
-// =======================
-
-let monedasOro = 0;
-let ejerciciosCompletados = new Set();
-let tabsVisitados = new Set();
-
-// Evitar que el navegador recuerde el scroll anterior
-if ("scrollRestoration" in history) {
-  history.scrollRestoration = "manual";
+/* =========================
+   Utilidades generales
+========================= */
+function $(id) {
+  return document.getElementById(id);
 }
 
-// =======================
-//  UTILIDADES
-// =======================
+function appendOutput(text) {
+  const out = $("output");
+  if (!out) return;
+  const pre = document.createElement("pre");
+  pre.textContent = text;
+  out.appendChild(pre);
+  out.scrollTop = out.scrollHeight;
+}
 
-function safeParseJSON(raw) {
+function clearOutput() {
+  const out = $("output");
+  if (out) out.innerHTML = "";
+}
+
+function setStatus(msg, cls) {
+  const s = $("status");
+  if (!s) return;
+  s.textContent = msg;
+  s.classList.remove("loading", "ready", "error");
+  if (cls) s.classList.add(cls);
+}
+
+/* =========================
+   postMessage al padre
+========================= */
+function sendParent(eventType, payload = {}) {
   try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+    window.parent?.postMessage(
+      { source: "py-ide", type: eventType, ...payload },
+      "*"
+    );
+  } catch (_) {}
 }
 
-function getSnapshot() {
-  return {
-    monedas: monedasOro,
-    ejercicios: Array.from(ejerciciosCompletados),
-    tabs: Array.from(tabsVisitados),
-  };
-}
+// Identificador opcional del ejercicio embebido (si viene en la URL)
+const urlParams = new URLSearchParams(location.search);
+const EMBED_EXERCISE_ID = urlParams.get("exerciseId") || null;
 
-function applySnapshot(data) {
-  monedasOro = Number.isFinite(data?.monedas) ? data.monedas : 0;
-  ejerciciosCompletados = new Set(
-    Array.isArray(data?.ejercicios) ? data.ejercicios : []
-  );
-  tabsVisitados = new Set(Array.isArray(data?.tabs) ? data.tabs : []);
-}
+/* =========================
+   Editor (CodeMirror fallback a textarea)
+========================= */
+let editor = null;
 
-// =======================
-//  PERSISTENCIA (Storage)
-// =======================
+function initEditor() {
+  const textarea = $("code-editor");
+  if (!textarea) return;
 
-/**
- * Guarda el progreso actual en sessionStorage.
- */
-function guardarProgreso() {
-  STORAGE.setItem(STORAGE_KEY, JSON.stringify(getSnapshot()));
-}
-
-/**
- * Intenta recuperar un "handoff" (traspaso rápido entre páginas).
- * Devuelve true si restauró algo válido.
- */
-function intentarRestaurarDesdeHandoff() {
-  const raw = localStorage.getItem(HANDOFF_KEY);
-  if (!raw) return false;
-
-  const payload = safeParseJSON(raw);
-  // Chequeo de frescura para evitar que sobreviva a "cerrar pestaña"
-  const fresh =
-    payload &&
-    typeof payload.ts === "number" &&
-    Date.now() - payload.ts < HANDOFF_TTL_MS;
-
-  if (fresh && payload.data) {
-    // Restaura en memoria y vuelve a dejarlo en sessionStorage
-    applySnapshot(payload.data);
-    STORAGE.setItem(STORAGE_KEY, JSON.stringify(payload.data));
-    // Limpia el handoff para no contaminar una sesión nueva
-    localStorage.removeItem(HANDOFF_KEY);
-    return true;
-  }
-
-  // Si estaba viejo o roto, lo borramos
-  localStorage.removeItem(HANDOFF_KEY);
-  return false;
-}
-
-/**
- * Carga el progreso desde sessionStorage o, si no hay, desde handoff.
- */
-function cargarProgreso() {
-  // 1) Intentar sessionStorage
-  const raw = STORAGE.getItem(STORAGE_KEY);
-  if (raw) {
-    const data = safeParseJSON(raw);
-    if (data) applySnapshot(data);
-    else STORAGE.removeItem(STORAGE_KEY);
+  // Si CodeMirror está disponible, lo usamos
+  if (window.CodeMirror) {
+    editor = CodeMirror.fromTextArea(textarea, {
+      mode: "python",
+      theme: "default",
+      lineNumbers: true,
+      indentUnit: 4,
+      tabSize: 4,
+      lineWrapping: true,
+      viewportMargin: Infinity,
+    });
   } else {
-    // 2) Si no hay en sesión, intentar el handoff (pasa entre páginas en la misma pestaña)
-    intentarRestaurarDesdeHandoff();
-  }
-
-  // Sincronizar UI inicial
-  const contador = document.getElementById("contador-monedas");
-  if (contador) contador.textContent = monedasOro;
-
-  // Mostrar/ocultar el HUD de monedas según el valor actual
-  const contenedor = document.querySelector(".contador-monedas-container");
-  if (contenedor) {
-    if (monedasOro > 0) contenedor.classList.add("is-visible");
-    else contenedor.classList.remove("is-visible");
-  }
-
-  ensureReiniciarLink();
-  verificarVictoria();
-}
-
-/**
- * Antes de abandonar la página, guardamos un "handoff" por unos segundos.
- * Esto permite que, aunque algunos navegadores "reseteen" sessionStorage
- * entre páginas (o en file://), el estado se traspase de forma efímera.
- */
-function escribirHandoffAntesDeSalir() {
-  const data = getSnapshot();
-  localStorage.setItem(HANDOFF_KEY, JSON.stringify({ ts: Date.now(), data }));
-}
-
-// =======================
-//  UI: MONEDAS Y TOASTS
-// =======================
-
-function crearToast(tipo, htmlContenido) {
-  const toast = document.createElement("div");
-  toast.className = `toast ${
-    tipo === "success" ? "toast--success" : "toast--error"
-  }`;
-  toast.innerHTML = htmlContenido;
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 3000);
-}
-
-function actualizarMonedas() {
-  const contador = document.getElementById("contador-monedas");
-  const contenedor = document.querySelector(".contador-monedas-container");
-
-  if (contador) {
-    contador.textContent = monedasOro;
-    contador.classList.add("coin-bounce");
-    setTimeout(() => contador.classList.remove("coin-bounce"), 600);
-  }
-
-  if (contenedor) {
-    if (monedasOro > 0) contenedor.classList.add("is-visible");
-    else contenedor.classList.remove("is-visible");
-  }
-
-  ensureReiniciarLink();
-  guardarProgreso();
-  verificarVictoria();
-}
-
-function mostrarRecompensa(cantidad, esDesafio = false) {
-  const tipo = esDesafio ? "¡Desafío completado!" : "¡Ejemplo/Quiz!";
-  crearToast(
-    "success",
-    `
-      🪙 +${cantidad} Moneda${cantidad > 1 ? "s" : ""} de Oro<br>
-      <span class="toast__msg-ok">✅ ¡Respuesta correcta!</span><br>
-      <span class="toast__sub">🏴‍☠️ ${tipo}</span>
-    `
-  );
-}
-
-function mostrarErrorRespuesta() {
-  crearToast(
-    "error",
-    `❌ Respuesta incorrecta<br><span class="toast__sub">Intenta de nuevo</span>`
-  );
-}
-
-// =======================
-//  PROGRESO Y VICTORIA
-// =======================
-
-function actualizarProgreso({
-  ejercicios,
-  totalEjercicios,
-  tabs,
-  totalTabs,
-  monedas,
-  monedasRequeridas,
-}) {
-  const container = document.querySelector(
-    ".contador-monedas-container .monedas-info"
-  );
-  if (!container) return;
-
-  let progressDiv = container.querySelector(".progreso-container");
-  if (!progressDiv) {
-    progressDiv = document.createElement("div");
-    progressDiv.className = "progreso-container";
-    container.appendChild(progressDiv);
-  }
-
-  progressDiv.innerHTML = `
-    📚 Ejercicios: ${ejercicios}/${totalEjercicios}<br>
-    🗂️ Secciones: ${tabs}/${totalTabs}<br>
-    🎯 Meta: ${monedasRequeridas} monedas (llevas ${monedas})
-  `;
-}
-
-function verificarVictoria() {
-  const ejerciciosCompletos = EJERCICIOS_REQUERIDOS.filter((id) =>
-    ejerciciosCompletados.has(id)
-  );
-  const tabsCompletos = TABS_REQUERIDOS.filter((id) => tabsVisitados.has(id));
-
-  const progreso = {
-    ejercicios: ejerciciosCompletos.length,
-    totalEjercicios: EJERCICIOS_REQUERIDOS.length,
-    tabs: tabsCompletos.length,
-    totalTabs: TABS_REQUERIDOS.length,
-    monedas: monedasOro,
-    monedasRequeridas: MONEDAS_PARA_GANAR,
-  };
-
-  actualizarProgreso(progreso);
-
-  const cumpleTodo =
-    progreso.ejercicios >= progreso.totalEjercicios &&
-    progreso.tabs >= progreso.totalTabs &&
-    progreso.monedas >= progreso.monedasRequeridas;
-
-  if (cumpleTodo) setTimeout(mostrarVictoria, 600);
-}
-
-function mostrarVictoria() {
-  // Evitar duplicados
-  if (document.getElementById("overlay-victoria")) return;
-
-  const overlay = document.createElement("div");
-  overlay.id = "overlay-victoria";
-  overlay.className = "overlay";
-
-  overlay.innerHTML = `
-    <div class="victory-card">
-      <h2 class="victory-card__title">🏆 ¡VICTORIA PIRATA! 🏆</h2>
-      <p class="victory-card__text">
-        ¡Has ganado <b>${monedasOro}</b> monedas de oro y te has convertido en</p> <p><b>Maestro de los Bucles</b>!
-      </p>
-      <div class="victory-card__coins">${"🪙".repeat(Math.min(monedasOro, 12))}</div>
-      <div class="victory-actions">
-        <button class="btn btn--primary" onclick="cerrarVictoria()">¡Seguir Navegando!</button>
-        <button class="btn btn--danger" onclick="reiniciarProgreso()">🔄 Reiniciar Aventura</button>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(overlay);
-
-  // 👉 Insertar imagen del cofre de forma segura
-  const card  = overlay.querySelector(".victory-card");
-  const coins = overlay.querySelector(".victory-card__coins");
-  if (card && coins) {
-    const img = document.createElement("img");
-    img.src = "img/tesoro.png";     
-    img.alt = "Cofre del Tesoro";
-    img.className = "victory-chest";
-    // Insertar el cofre ANTES del bloque de monedas
-    card.insertBefore(img, coins);
-  }
-
-  // Mensaje final oculto en index.html (si existe)
-  const felicidades = document.getElementById("final-felicidades");
-  if (felicidades) {
-    felicidades.style.display = "block";
-    felicidades.classList.add("fade-in");
+    // Fallback: usamos el textarea directamente
+    editor = {
+      getValue: () => textarea.value,
+      setValue: (v) => (textarea.value = v),
+      focus: () => textarea.focus(),
+    };
   }
 }
 
+/* =========================
+   Entrada interactiva (input)
+========================= */
+let waitingForInput = null;
 
-function cerrarVictoria() {
-  const overlay = document.getElementById("overlay-victoria");
-  if (overlay) overlay.remove();
-}
-
-function reiniciarProgreso() {
-  monedasOro = 0;
-  ejerciciosCompletados = new Set();
-  tabsVisitados = new Set();
-
-  STORAGE.removeItem(STORAGE_KEY);
-  localStorage.removeItem(HANDOFF_KEY); // limpiar también el handoff
-
-  actualizarMonedas();
-  cerrarVictoria?.();
-  window.scrollTo(0, 0); // Solo aquí mantenemos el scrollTo
-
-  // Redirigir siempre al inicio
-  window.location.href = "index.html";
-}
-
-// =======================
-//  EJERCICIOS / QUIZ
-// =======================
-
-function marcarEjercicioCompletado(ejercicioId) {
-  const iframe = document.querySelector(
-    `iframe[data-exercise="${ejercicioId}"]`
-  );
-  if (!iframe) return;
-  const container = iframe.closest(".code-container");
-  if (!container) return;
-
-  if (!container.querySelector(".ejercicio-completado")) {
-    const marca = document.createElement("div");
-    marca.className = "ejercicio-completado";
-    marca.textContent = "✅ ¡Completado! +🪙";
-    container.style.position = "relative";
-    container.appendChild(marca);
-  }
-}
-
-function ganarMonedas(ejercicioId, cantidad = 1, esDesafio = false) {
-  if (ejerciciosCompletados.has(ejercicioId)) return; // evitar doble premio
-  ejerciciosCompletados.add(ejercicioId);
-  monedasOro += cantidad;
-  actualizarMonedas();
-  mostrarRecompensa(cantidad, esDesafio);
-  marcarEjercicioCompletado(ejercicioId);
-}
-
-function verificarRespuesta(ejercicioId, respuestaCorrecta) {
-  const seleccionada = document.querySelector(
-    `input[name="quiz-${ejercicioId}"]:checked`
-  );
-  if (!seleccionada) {
-    mostrarErrorRespuesta();
-    return;
-  }
-  if (seleccionada.value === respuestaCorrecta) {
-    const esDesafio = ejercicioId.startsWith("desafio");
-    const cantidad = esDesafio ? 2 : 1;
-    ganarMonedas(ejercicioId, cantidad, esDesafio);
-  } else {
-    mostrarErrorRespuesta();
-  }
-}
-
-// =======================
-//  SECCIONES VISITADAS
-// =======================
-
-function marcarTabVisitado(tabId) {
-  if (!tabsVisitados.has(tabId)) {
-    tabsVisitados.add(tabId);
-    guardarProgreso();
-    verificarVictoria();
-  }
-}
-
-// =======================
-//  INICIALIZACIÓN
-// =======================
-
-function ensureReiniciarLink() {
-  const container = document.querySelector(
-    ".contador-monedas-container .monedas-info"
-  );
-  if (!container) return;
-
-  if (container.querySelector(".reiniciar-link")) return;
-
-  const link = document.createElement("a");
-  link.className = "reiniciar-link";
-  link.href = "#";
-  link.textContent = "🔄 Reiniciar";
-  link.addEventListener("click", (e) => {
-    e.preventDefault();
-    reiniciarProgreso();
+function setupInputBridge(pyodide) {
+  // Implementamos input() redirigido a UI de la página
+  pyodide.registerJsModule("jsbridge", {
+    input: async (promptText) => {
+      return await getUserInput(promptText || "");
+    },
+    print: (text) => {
+      appendOutput(String(text ?? ""));
+    },
   });
 
-  container.appendChild(link);
+  const pyInputShim = `
+import sys
+from jsbridge import input as __js_input, print as __js_print
+
+def __py_input(prompt=""):
+    return __js_input(prompt)
+
+# Reemplazar builtins.input por nuestro puente
+__builtins__.input = __py_input
+`;
+  return pyInputShim;
+}
+
+function getUserInput(promptText) {
+  return new Promise((resolve) => {
+    const inputSection = $("input-section");
+    const promptEl = $("input-prompt");
+    const field = $("input-field");
+    const btn = $("submit-input");
+
+    if (!inputSection || !promptEl || !field || !btn) {
+      // Si no hay UI de input, pedimos con prompt() nativo
+      const val = window.prompt(promptText || "Entrada:");
+      resolve(val ?? "");
+      return;
+    }
+
+    promptEl.textContent = promptText || "Entrada:";
+    field.value = "";
+    inputSection.style.display = "flex";
+    field.focus();
+
+    const submit = () => {
+      const v = field.value;
+      cleanup();
+      resolve(v);
+    };
+    const onKey = (e) => {
+      if (e.key === "Enter") submit();
+    };
+    const cleanup = () => {
+      inputSection.style.display = "none";
+      btn.removeEventListener("click", submit);
+      field.removeEventListener("keydown", onKey);
+      waitingForInput = null;
+    };
+
+    waitingForInput = { submit };
+    btn.addEventListener("click", submit);
+    field.addEventListener("keydown", onKey);
+  });
+}
+
+/* =========================
+   Carga de Pyodide
+========================= */
+let pyodide = null;
+
+async function loadPython() {
+  try {
+    setStatus("Cargando Python...", "loading");
+
+    // Cargar script de Pyodide dinámicamente
+    await new Promise((resolve, reject) => {
+      if (window.loadPyodide) return resolve();
+      const s = document.createElement("script");
+      // Podés cambiar CDN si tu red bloquea alguno:
+      // jsDelivr:
+      // s.src = "https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js";
+      // CDN alternativo oficial:
+      s.src = "https://pyodide-cdn2.iodide.io/v0.24.1/full/pyodide.js";
+      s.async = true;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error("No se pudo cargar pyodide.js"));
+      document.head.appendChild(s);
+    });
+
+    pyodide = await loadPyodide({
+      indexURL: "https://pyodide-cdn2.iodide.io/v0.24.1/full/",
+    });
+
+    // Puente de input/print
+    const shim = setupInputBridge(pyodide);
+    await pyodide.runPythonAsync(shim);
+
+    setStatus("Python 3.11 | Pyodide listo", "ready");
+    sendParent("ide_ready", { exerciseId: EMBED_EXERCISE_ID });
+  } catch (err) {
+    console.error(err);
+    setStatus("Error cargando Pyodide", "error");
+    appendOutput(String(err));
+  }
+}
+
+/* =========================
+   Ejecución de código
+========================= */
+async function ejecutarCodigo() {
+  clearOutput();
+  sendParent("run_started", { exerciseId: EMBED_EXERCISE_ID });
+
+  const code = editor ? editor.getValue() : ($("code-editor")?.value || "");
+  if (!code) {
+    appendOutput("No hay código para ejecutar.");
+    return;
+  }
+
+  try {
+    // Redirigir stdout y stderr hacia appendOutput
+    const wrapper = `
+import sys, io
+from jsbridge import print as __js_print
+
+__stdout = io.StringIO()
+__stderr = io.StringIO()
+
+class _W:
+    def write(self, s):
+        __js_print(s)
+
+sys.stdout = _W()
+sys.stderr = _W()
+
+# === Código del usuario ===
+${code}
+`;
+    await pyodide.runPythonAsync(wrapper);
+
+    sendParent("run_success", { exerciseId: EMBED_EXERCISE_ID });
+  } catch (err) {
+    appendOutput(String(err));
+    sendParent("run_error", {
+      exerciseId: EMBED_EXERCISE_ID,
+      message: err && err.message ? err.message : String(err),
+    });
+  } finally {
+    // Restaurar UI input si quedó abierta
+    if (waitingForInput && typeof waitingForInput.submit === "function") {
+      // no forzamos submit; solo nos aseguramos de que no quede colgada
+    }
+  }
+}
+
+/* =========================
+   Embebido: generar URL con código
+========================= */
+function getEmbedURL() {
+  // Compactar el código con LZString si está disponible
+  const base = location.origin + location.pathname; // URL de esta página
+  const code = editor ? editor.getValue() : ($("code-editor")?.value || "");
+  let query = "";
+
+  if (typeof LZString !== "undefined" && code) {
+    const compressed = LZString.compressToEncodedURIComponent(code);
+    query = `?code=${compressed}`;
+  } else if (code) {
+    // Fallback (sin comprimir; largo)
+    query = `?code_raw=${encodeURIComponent(code)}`;
+  }
+
+  // Preservar exerciseId si lo hay
+  const extra = EMBED_EXERCISE_ID
+    ? (query ? "&" : "?") + `exerciseId=${encodeURIComponent(EMBED_EXERCISE_ID)}`
+    : "";
+
+  return base + query + extra;
+}
+
+function copiarEmbed() {
+  const url = getEmbedURL();
+  navigator.clipboard
+    .writeText(url)
+    .then(() => alert("URL copiada al portapapeles"))
+    .catch(() => alert("No se pudo copiar. Copia manualmente:\n" + url));
+}
+
+/* =========================
+   Botones y arranque
+========================= */
+function wireUI() {
+  $("run-btn")?.addEventListener("click", ejecutarCodigo);
+  $("clear-btn")?.addEventListener("click", clearOutput);
+  $("embed-btn")?.addEventListener("click", copiarEmbed);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  // ❌ ELIMINADO: window.scrollTo(0, 0);
-
-  // 1) Cargar progreso (sessionStorage o handoff)
-  cargarProgreso();
-
-  // 2) Marcar sección visitada según página actual
-  const currentPage = window.location.pathname.split("/").pop() || "index.html";
-  let currentTab = "";
-  switch (currentPage) {
-    case "bucles-for.html":
-      currentTab = "for-tab";
-      break;
-    case "bucles-while.html":
-      currentTab = "while-tab";
-      break;
-    case "comparacion.html":
-      currentTab = "comparison-tab";
-      break;
-    case "desafios.html":
-      currentTab = "challenges-tab";
-      break;
-    // index.html (intro) no suma en TABS_REQUERIDOS a propósito
-  }
-  if (currentTab && TABS_REQUERIDOS.includes(currentTab)) {
-    marcarTabVisitado(currentTab);
-  }
-
-  // 3) Marcar visualmente ejercicios ya completados
-  ejerciciosCompletados.forEach((id) =>
-    setTimeout(() => marcarEjercicioCompletado(id), 400)
-  );
+  initEditor();
+  wireUI();
+  loadPython().then(() => {
+    console.log("✅ IDE listo");
+  });
 });
-
-// Guardar handoff justo antes de abandonar la página (cambio de sección, navegación, etc.)
-window.addEventListener("pagehide", escribirHandoffAntesDeSalir); // más fiable en móvil
-window.addEventListener("beforeunload", escribirHandoffAntesDeSalir); // respaldo en desktop
-
-// ❌ ELIMINADO: Refuerzo de scroll al terminar de cargar todo
-// window.addEventListener("load", () => {
-//   window.scrollTo(0, 0);
-// });
